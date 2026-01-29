@@ -3,21 +3,53 @@ name: Build Java JAR
 on:
   push:
     branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@v4
 
-      - name: Set up JDK'
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
 
       - name: Build with Maven
-        run: mvn clean package
+        run: mvn -B -DskipTests clean package
 
-      - name: Upload JAR
+      - name: Verify jar exists
+        id: findjar
+        shell: bash
+        run: |
+          set -e
+          ls -l target || true
+          JAR=$(ls -1 target/*.jar | grep -v '\-sources\.jar' | grep -v '\-javadoc\.jar' | head -n1 || true)
+          if [ -z "$JAR" ]; then
+            echo "No runnable JAR found under target/. Check your pom.xml and build logs."
+            exit 1
+          fi
+          echo "Found JAR: $JAR"
+          echo "jar_path=$JAR" >> "$GITHUB_OUTPUT"
+
+      - name: Upload built JAR
         uses: actions/upload-artifact@v4
         with:
           name: hello-jar
-          path: target/*.jar
+          path: ${{ steps.findjar.outputs.jar_path }}
+          if-no-files-found: error
+          retention-days: 14
